@@ -208,4 +208,23 @@ window.openRegularAbsences = async (groupId,date) => { try{const row=await ensur
 window.openExistingAbsences = async (lessonId,groupId) => openAbsenceModal(lessonId,groupId);
 
 async function openAbsenceModal(lessonId,groupId) {
-  const [s,a]=await Promise.all([db.from("reg_students").select("*").eq("group_id",groupId).e
+  const [s,a]=await Promise.all([db.from("reg_students").select("*").eq("group_id",groupId).eq("active",true).order("name"),db.from("reg_absences").select("*").eq("lesson_id",lessonId)]); if(s.error)return showMessage(s.error.message); if(a.error)return showMessage(a.error.message);
+  const absent=new Set((a.data||[]).map(x=>x.student_id)); openModal(`<h3>Assenze — ${esc(groupName(groupId))}</h3><p class="muted">Tutti sono presenti di default. Spunta solo chi è assente.</p>${(s.data||[]).length?(s.data||[]).map(x=>`<label class="checkrow"><input type="checkbox" ${absent.has(x.id)?'checked':''} onchange="toggleAbsence('${lessonId}','${x.id}',this.checked)"><span>${esc(x.name)}</span></label>`).join(""):'<div class="empty">Nessun ragazzo inserito nel gruppo.</div>'}`);
+}
+window.toggleAbsence = async (lessonId,studentId,on) => { if(on){const {error}=await db.from("reg_absences").upsert({lesson_id:lessonId,student_id:studentId},{onConflict:"lesson_id,student_id"}); if(error)showMessage(error.message);}else{const {error}=await db.from("reg_absences").delete().eq("lesson_id",lessonId).eq("student_id",studentId); if(error)showMessage(error.message);} };
+
+window.openRegularTeacherChange = async (groupId,date) => { try{const row=await ensureRegularLesson(groupId,date),expected=programForGroupDate(groupId,date)?.teacher_id||null; openTeacherModal(row,expected);}catch(e){showMessage(e.message);} };
+window.openExistingTeacherChange = async lessonId => { const q=await db.from("reg_lessons").select("*").eq("id",lessonId).single(); if(q.error)return showMessage(q.error.message); let expected=null; if(q.data.kind==="regular")expected=programForGroupDate(q.data.group_id,q.data.lesson_date)?.teacher_id||null; else{const map=await originalMapForRecoveries([q.data]); expected=expectedTeacherForRecovery(q.data,map);} openTeacherModal(q.data,expected); };
+function openTeacherModal(row,expected) { const active=state.teachers.filter(x=>x.active); openModal(`<h3>Cambio docente</h3><p class="muted">Docente previsto: <b>${esc(teacherName(expected))}</b></p><label>Lezione effettuata da<select id="modalTeacher"><option value="">Docente previsto</option>${active.map(t=>`<option value="${t.id}" ${t.id===row.substitute_teacher_id?'selected':''}>${esc(t.name)}</option>`).join("")}</select></label><button onclick="saveTeacherChange('${row.id}')">Salva</button>`); }
+window.saveTeacherChange = async lessonId => { const id=$("modalTeacher").value||null; const {error}=await db.from("reg_lessons").update({substitute_teacher_id:id}).eq("id",lessonId); if(error)return showMessage(error.message); closeModal(); await renderToday(); };
+
+window.openRecoveryModal = async preferredId => {
+  const cancelledQ=await db.from("reg_lessons").select("*").eq("kind","regular").eq("status","cancelled").order("lesson_date"),recoveryQ=await db.from("reg_lessons").select("recovers_lesson_id").eq("kind","recovery"); if(cancelledQ.error)return showMessage(cancelledQ.error.message); if(recoveryQ.error)return showMessage(recoveryQ.error.message);
+  const used=new Set((recoveryQ.data||[]).map(x=>x.recovers_lesson_id).filter(Boolean)),available=(cancelledQ.data||[]).filter(x=>!used.has(x.id)||x.id===preferredId);
+  if(!available.length){openModal('<h3>Lezione di recupero</h3><div class="empty">Non ci sono lezioni annullate ancora da recuperare.</div>');return;}
+  openModal(`<h3>Nuova lezione di recupero</h3><label>Recupera<select id="recoveryOriginal">${available.map(x=>`<option value="${x.id}" ${x.id===preferredId?'selected':''}>${esc(groupName(x.group_id))} — ${fmtDate(x.lesson_date)}</option>`).join("")}</select></label><label>Data del recupero<input id="recoveryDate" type="date"></label><button onclick="saveRecovery()">Crea recupero</button>`);
+};
+window.saveRecovery = async () => { const originalId=$("recoveryOriginal").value,date=$("recoveryDate").value; if(!originalId||!date)return showMessage("Scegli la lezione e la data del recupero."); const q=await db.from("reg_lessons").select("*").eq("id",originalId).single(); if(q.error)return showMessage(q.error.message); const {error}=await db.from("reg_lessons").insert({group_id:q.data.group_id,lesson_date:date,kind:"recovery",status:"scheduled",recovers_lesson_id:originalId}); if(error)return showMessage(error.message); closeModal(); await renderToday(); };
+window.deleteRecovery = async id => { if(!confirm("Eliminare questa lezione di recupero?"))return; const {error}=await db.from("reg_lessons").delete().eq("id",id); if(error)return showMessage(error.message); await renderToday(); };
+
+function datesForProgramInRange(p,st
