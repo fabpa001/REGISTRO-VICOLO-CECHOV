@@ -182,3 +182,30 @@ function programForGroupDate(groupId,date) { const a=state.programs.filter(p=>p.
 function regularProgramsOn(date) { if(isClosed(date))return[]; return state.programs.filter(p=>p.active&&programMatches(p,date)); }
 async function ensureRegularLesson(groupId,date) {
   let q=await db.from("reg_lessons").select("*").eq("group_id",groupId).eq("lesson_date",date).eq("kind","regular").maybeSingle(); if(q.error)throw q.error; if(q.data)return q.data;
+  const ins=await db.from("reg_lessons").insert({group_id:groupId,lesson_date:date,kind:"regular",status:"scheduled"}).select().single(); if(ins.error)throw ins.error; return ins.data;
+}
+async function lessonRowsOn(date) { const {data,error}=await db.from("reg_lessons").select("*").eq("lesson_date",date); if(error)throw error; return data||[]; }
+async function originalMapForRecoveries(recoveries) { const ids=[...new Set(recoveries.map(r=>r.recovers_lesson_id).filter(Boolean))]; if(!ids.length)return new Map(); const {data,error}=await db.from("reg_lessons").select("*").in("id",ids); if(error)throw error; return new Map((data||[]).map(x=>[x.id,x])); }
+function expectedTeacherForRecovery(recovery,originalMap) { const original=originalMap.get(recovery.recovers_lesson_id); if(!original)return null; return programForGroupDate(original.group_id,original.lesson_date)?.teacher_id || state.groups.find(g=>g.id===original.group_id)?.teacher_id || null; }
+
+async function renderToday() {
+  try {
+    const date=todayISO(),rows=await lessonRowsOn(date),regularRows=new Map(rows.filter(x=>x.kind==="regular").map(x=>[`${x.group_id}|${x.lesson_date}`,x])),recoveries=rows.filter(x=>x.kind==="recovery"),originalMap=await originalMapForRecoveries(recoveries),programs=regularProgramsOn(date);
+    let html=""; if(isClosed(date))html+='<div class="empty">Oggi è inserita una chiusura.</div>';
+    for(const p of programs){ const row=regularRows.get(`${p.group_id}|${date}`),cancelled=row?.status==="cancelled",actual=row?.substitute_teacher_id||p.teacher_id;
+      html+=`<div class="lesson ${cancelled?'cancelled':''}"><b>${esc(groupName(p.group_id))}</b><br>${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)}<br>Docente: <b>${esc(teacherName(actual))}</b> ${row?.substitute_teacher_id?'<span class="tag sub">Cambio docente</span>':''} ${cancelled?'<span class="tag cancel">Lezione annullata</span>':''}<div class="actions">${cancelled?`<button class="secondary" onclick="restoreRegular('${p.group_id}','${date}')">Ripristina</button><button onclick="openRecoveryModal('${row.id}')">Crea recupero</button>`:`<button onclick="openRegularAbsences('${p.group_id}','${date}')">Assenze</button><button class="secondary" onclick="openRegularTeacherChange('${p.group_id}','${date}')">Cambio docente</button><button class="danger" onclick="cancelRegular('${p.group_id}','${date}')">Annulla</button>`}</div></div>`;
+    }
+    for(const r of recoveries){ const original=originalMap.get(r.recovers_lesson_id),expected=expectedTeacherForRecovery(r,originalMap),actual=r.substitute_teacher_id||expected;
+      html+=`<div class="lesson recovery"><b>${esc(groupName(r.group_id))}</b> <span class="tag recovery">RECUPERO</span><br>${original?'Recupero della lezione del '+fmtDate(original.lesson_date):'Lezione di recupero'}<br>Docente: <b>${esc(teacherName(actual))}</b> ${r.substitute_teacher_id?'<span class="tag sub">Cambio docente</span>':''}<div class="actions"><button onclick="openExistingAbsences('${r.id}','${r.group_id}')">Assenze</button><button class="secondary" onclick="openExistingTeacherChange('${r.id}')">Cambio docente</button><button class="danger" onclick="deleteRecovery('${r.id}')">Elimina recupero</button></div></div>`;
+    }
+    if(!html)html='<div class="empty">Nessuna lezione oggi.</div>'; $("todayList").innerHTML=html;
+  } catch(e){ console.error(e); $("todayList").innerHTML='<div class="empty">Errore nel caricamento delle lezioni.</div>'; }
+}
+
+window.cancelRegular = async (groupId,date) => { if(!confirm("Confermi che questa lezione è annullata?"))return; try{const row=await ensureRegularLesson(groupId,date); const {error}=await db.from("reg_lessons").update({status:"cancelled"}).eq("id",row.id); if(error)throw error; await renderToday();}catch(e){showMessage(e.message);} };
+window.restoreRegular = async (groupId,date) => { try{const row=await ensureRegularLesson(groupId,date); const {error}=await db.from("reg_lessons").update({status:"scheduled"}).eq("id",row.id); if(error)throw error; await renderToday();}catch(e){showMessage(e.message);} };
+window.openRegularAbsences = async (groupId,date) => { try{const row=await ensureRegularLesson(groupId,date); await openAbsenceModal(row.id,groupId);}catch(e){showMessage(e.message);} };
+window.openExistingAbsences = async (lessonId,groupId) => openAbsenceModal(lessonId,groupId);
+
+async function openAbsenceModal(lessonId,groupId) {
+  const [s,a]=await Promise.all([db.from("reg_students").select("*").eq("group_id",groupId).e
