@@ -149,4 +149,36 @@ async function loadStudents() {
   const groupId = $("studentGroup").value;
   if (!groupId) { $("studentsList").innerHTML='<div class="empty">Scegli un gruppo.</div>'; return; }
   const {data,error}=await db.from("reg_students").select("*").eq("group_id",groupId).order("name"); if(error)return showMessage(error.message);
-  $("studentsList").innerHTML
+  $("studentsList").innerHTML = data.length ? data.map(s=>`
+    <div class="item"><b>${esc(s.name)}</b> ${s.active?"":'<span class="tag">non attivo</span>'}
+    <div class="actions"><button class="small secondary" onclick="renameStudent('${s.id}')">Rinomina</button><button class="small ${s.active?'danger':'secondary'}" onclick="toggleStudent('${s.id}',${!s.active})">${s.active?'Disattiva':'Riattiva'}</button></div></div>`).join("") : '<div class="empty">Nessun ragazzo inserito.</div>';
+}
+async function addStudent() {
+  const group_id=$("studentGroup").value,name=$("studentName").value.trim(); if(!group_id)return showMessage("Scegli prima il gruppo."); if(!name)return;
+  const {error}=await db.from("reg_students").insert({group_id,name,active:true}); if(error)return showMessage(error.message); $("studentName").value=""; await loadStudents();
+}
+window.renameStudent = async id => { const q=await db.from("reg_students").select("name").eq("id",id).single(); if(q.error)return showMessage(q.error.message); const name=prompt("Nuovo nome",q.data.name); if(!name?.trim())return; const {error}=await db.from("reg_students").update({name:name.trim()}).eq("id",id); if(error)return showMessage(error.message); await loadStudents(); };
+window.toggleStudent = async (id,active) => { const {error}=await db.from("reg_students").update({active}).eq("id",id); if(error)return showMessage(error.message); await loadStudents(); };
+
+async function addTeacher() { const name=$("teacherName").value.trim(); if(!name)return; const {error}=await db.from("reg_teachers").insert({name,active:true}); if(error)return showMessage(error.message); $("teacherName").value=""; await refreshCore(); }
+window.renameTeacher = async id => { const current=state.teachers.find(x=>x.id===id); const name=prompt("Nuovo nome del docente",current?.name||""); if(!name?.trim())return; const {error}=await db.from("reg_teachers").update({name:name.trim()}).eq("id",id); if(error)return showMessage(error.message); await refreshCore(); };
+window.toggleTeacher = async (id,active) => { const {error}=await db.from("reg_teachers").update({active}).eq("id",id); if(error)return showMessage(error.message); await refreshCore(); };
+
+async function addProgram() {
+  const payload={group_id:$("pGroup").value,teacher_id:$("pTeacher").value,weekday:Number($("pDay").value),start_date:$("pFrom").value,end_date:$("pTo").value,start_time:$("pStart").value,end_time:$("pEnd").value,active:true};
+  if(Object.values(payload).some(v=>v===""||v===null))return showMessage("Completa tutti i campi."); if(payload.end_date<payload.start_date)return showMessage("Controlla le date.");
+  const {error}=await db.from("reg_programming").insert(payload); if(error)return showMessage(error.message); await refreshCore();
+}
+window.finishProgram = async id => { if(!confirm("Terminare questa programmazione? Lo storico rimarrà disponibile."))return; const p=state.programs.find(x=>x.id===id); const end=p&&p.end_date<todayISO()?p.end_date:todayISO(); const {error}=await db.from("reg_programming").update({active:false,end_date:end}).eq("id",id); if(error)return showMessage(error.message); await refreshCore(); };
+
+async function addClosure() {
+  const payload={name:$("cName").value.trim(),start_date:$("cFrom").value,end_date:$("cTo").value}; if(!payload.name||!payload.start_date||!payload.end_date)return showMessage("Completa tutti i campi."); if(payload.end_date<payload.start_date)return showMessage("Controlla le date.");
+  const {error}=await db.from("reg_closures").insert(payload); if(error)return showMessage(error.message); $("cName").value=""; await refreshCore();
+}
+window.deleteClosure = async id => { if(!confirm("Eliminare questa chiusura?"))return; const {error}=await db.from("reg_closures").delete().eq("id",id); if(error)return showMessage(error.message); await refreshCore(); };
+
+function programMatches(p,date) { return date>=p.start_date && date<=p.end_date && weekdayIso(date)===p.weekday; }
+function programForGroupDate(groupId,date) { const a=state.programs.filter(p=>p.group_id===groupId&&programMatches(p,date)).sort((x,y)=>y.start_date.localeCompare(x.start_date)); return a[0]||null; }
+function regularProgramsOn(date) { if(isClosed(date))return[]; return state.programs.filter(p=>p.active&&programMatches(p,date)); }
+async function ensureRegularLesson(groupId,date) {
+  let q=await db.from("reg_lessons").select("*").eq("group_id",groupId).eq("lesson_date",date).eq("kind","regular").maybeSingle(); if(q.error)throw q.error; if(q.data)return q.data;
