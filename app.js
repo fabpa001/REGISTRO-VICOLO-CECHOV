@@ -88,4 +88,65 @@ function wireActions() {
   $("newRecovery").onclick = () => openRecoveryModal();
   $("monthlyReport").onclick = buildMonthlyReport;
   $("annualReport").onclick = buildAnnualReport;
-  $("commitmentReport"
+  $("commitmentReport").onclick = buildCommitmentReport;
+  $("copyReport").onclick = copyReport;
+  $("closeModal").onclick = closeModal;
+  $("modal").onclick = e => { if (e.target === $("modal")) closeModal(); };
+}
+
+async function refreshCore() {
+  const [g,t,p,c] = await Promise.all([
+    db.from("reg_groups").select("*").order("name"),
+    db.from("reg_teachers").select("*").order("name"),
+    db.from("reg_programming").select("*").order("start_date"),
+    db.from("reg_closures").select("*").order("start_date")
+  ]);
+  state.groups = g.data || []; state.teachers = t.data || []; state.programs = p.data || []; state.closures = c.data || [];
+  renderManage(); fillSelects();
+}
+
+function fillSelects() {
+  const activeGroups = state.groups.filter(x=>x.active), activeTeachers = state.teachers.filter(x=>x.active);
+  $("studentGroup").innerHTML = opts(activeGroups, $("studentGroup").value);
+  $("pGroup").innerHTML = opts(activeGroups, $("pGroup").value);
+  $("pTeacher").innerHTML = opts(activeTeachers, $("pTeacher").value);
+  $("payGroup").innerHTML = opts(activeGroups, $("payGroup").value);
+  $("reportTeacher").innerHTML = opts(state.teachers, $("reportTeacher").value);
+}
+
+function renderManage() {
+  $("groupsList").innerHTML = state.groups.length ? state.groups.map(g=>`
+    <div class="item"><b>${esc(g.name)}</b> ${g.active ? "" : '<span class="tag">non attivo</span>'}
+    <div class="actions"><button class="small secondary" onclick="renameGroup('${g.id}')">Rinomina</button><button class="small ${g.active?'danger':'secondary'}" onclick="toggleGroup('${g.id}',${!g.active})">${g.active?'Disattiva':'Riattiva'}</button></div></div>`).join("") : '<div class="empty">Nessun gruppo.</div>';
+
+  $("teacherCount").textContent = `(${state.teachers.filter(x=>x.active).length})`;
+  $("teachersList").innerHTML = state.teachers.length ? state.teachers.map(t=>`
+    <div class="item"><b>${esc(t.name)}</b> ${t.active ? "" : '<span class="tag">non attivo</span>'}
+    <div class="actions"><button class="small secondary" onclick="renameTeacher('${t.id}')">Rinomina</button><button class="small ${t.active?'danger':'secondary'}" onclick="toggleTeacher('${t.id}',${!t.active})">${t.active?'Disattiva':'Riattiva'}</button></div></div>`).join("") : '<div class="empty">Nessun docente.</div>';
+
+  renderPrograms();
+  $("closuresList").innerHTML = state.closures.length ? state.closures.map(c=>`
+    <div class="item"><b>${esc(c.name)}</b><br>${fmtDate(c.start_date)} – ${fmtDate(c.end_date)}<div class="actions"><button class="small danger" onclick="deleteClosure('${c.id}')">Elimina</button></div></div>`).join("") : '<div class="empty">Nessuna chiusura.</div>';
+}
+
+function renderPrograms() {
+  const list = state.programs.slice().sort((a,b)=>a.weekday-b.weekday || a.start_time.localeCompare(b.start_time));
+  $("programManageList").innerHTML = list.length ? list.map(p=>`
+    <div class="item"><b>${esc(groupName(p.group_id))}</b><br>${DAY_NAMES[p.weekday]} ${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)} · ${esc(teacherName(p.teacher_id))}<br>
+    <span class="muted">${fmtDate(p.start_date)} – ${fmtDate(p.end_date)}</span> ${p.active ? "" : '<span class="tag">terminata</span>'}
+    ${p.active ? `<div class="actions"><button class="small danger" onclick="finishProgram('${p.id}')">Termina</button></div>` : ""}</div>`).join("") : '<div class="empty">Nessuna programmazione.</div>';
+}
+
+async function addGroup() {
+  const name = $("groupName").value.trim(); if (!name) return;
+  const { error } = await db.from("reg_groups").insert({name,active:true}); if (error) return showMessage(error.message);
+  $("groupName").value = ""; await refreshCore();
+}
+window.renameGroup = async id => { const current=state.groups.find(x=>x.id===id); const name=prompt("Nuovo nome del gruppo",current?.name||""); if(!name?.trim())return; const {error}=await db.from("reg_groups").update({name:name.trim()}).eq("id",id); if(error)return showMessage(error.message); await refreshCore(); };
+window.toggleGroup = async (id,active) => { const {error}=await db.from("reg_groups").update({active}).eq("id",id); if(error)return showMessage(error.message); await refreshCore(); };
+
+async function loadStudents() {
+  const groupId = $("studentGroup").value;
+  if (!groupId) { $("studentsList").innerHTML='<div class="empty">Scegli un gruppo.</div>'; return; }
+  const {data,error}=await db.from("reg_students").select("*").eq("group_id",groupId).order("name"); if(error)return showMessage(error.message);
+  $("studentsList").innerHTML
