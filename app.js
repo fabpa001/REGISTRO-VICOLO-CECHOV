@@ -266,4 +266,12 @@ async function buildCommitmentReport(){
   const teacherId=requireReportTeacher();if(!teacherId)return;const label=$("reportYear").value,{start,end}=academicRange(label),own=scheduledOccurrences(start,end,teacherId),rows=await lessonRowsRange(start,end),regularMap=new Map(rows.filter(x=>x.kind==="regular").map(x=>[`${x.group_id}|${x.lesson_date}`,x]));let personal=0,cancelled=0,replaced=0;const detail=[],cancelledIds=[];
   for(const o of own){const row=regularMap.get(`${o.program.group_id}|${o.date}`);if(row?.status==="cancelled"){cancelled++;cancelledIds.push(row.id);detail.push(`${fmtShort(o.date)} – ${groupName(o.program.group_id)} – LEZIONE ANNULLATA`);}else if(row?.substitute_teacher_id&&row.substitute_teacher_id!==teacherId){replaced++;detail.push(`${fmtShort(o.date)} – ${groupName(o.program.group_id)} – svolta da ${teacherName(row.substitute_teacher_id)}`);}else personal++;}
   let recoveriesByOther=0;if(cancelledIds.length){const q=await db.from("reg_lessons").select("*").eq("kind","recovery").in("recovers_lesson_id",cancelledIds);if(q.error)return showMessage(q.error.message);const map=await originalMapForRecoveries(q.data||[]);for(const r of(q.data||[])){if(r.status==="cancelled")continue;const actual=r.substitute_teacher_id||expectedTeacherForRecovery(r,map);if(actual&&actual!==teacherId){recoveriesByOther++;const orig=map.get(r.recovers_lesson_id);detail.push(`${fmtShort(r.lesson_date)} – Recupero ${groupName(r.group_id)}${orig?' della lezione del '+fmtShort(orig.lesson_date):''} – svolto da ${teacherName(actual)}`);}}}
- 
+  setReport(`${teacherName(teacherId).toUpperCase()} – QUADRO IMPEGNI ${label}\n\nLezioni previste: ${own.length}\nLezioni svolte personalmente: ${personal}\nLezioni annullate: ${cancelled}\nLezioni con cambio docente: ${replaced}\nRecuperi svolti da altro docente: ${recoveriesByOther}\n\nDETTAGLIO ECCEZIONI\n${detail.length?detail.join("\n"):"Nessuna eccezione registrata."}`);
+}
+
+async function copyReport(){const text=$("reportOutput").textContent;if(!text)return;try{await navigator.clipboard.writeText(text);$("copyReport").textContent="✓ COPIATO";setTimeout(()=>$("copyReport").textContent="📋 COPIA REPORT",1200);}catch{showMessage("Non sono riuscito a copiare automaticamente il report.");}}
+function openModal(html){$("modalBody").innerHTML=html;$("modal").hidden=false;}
+function closeModal(){$("modal").hidden=true;$("modalBody").innerHTML="";}
+window.closeModal=closeModal;
+
+boot();
