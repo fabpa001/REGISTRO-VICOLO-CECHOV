@@ -1,1 +1,143 @@
-<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#f2b705"><title>Registro Vicolo Cechov</title><link rel="stylesheet" href="style.css?v=1"><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script></head><body><section id="auth"><div class="card login"><h1>VICOLO CECHOV</h1><h2>Registro</h2><input id="email" type="email" placeholder="Email"><input id="password" type="password" placeholder="Password"><button id="login">Accedi</button><p id="authmsg"></p></div></section><section id="app" hidden><header><div><b>VICOLO CECHOV</b><small>Registro</small></div><button id="logout" class="ghost">Esci</button></header><main><section id="today" class="page"><h2>Oggi</h2><div id="todayList"></div></section><section id="programs" class="page" hidden><h2>Programmazioni</h2><div id="programList"></div></section><section id="payments" class="page" hidden><h2>Quote</h2><p class="muted">Gestione quote mensili.</p></section><section id="manage" class="page" hidden><h2>Gestisci</h2><div class="tabs"><button data-tab="groups">Gruppi</button><button data-tab="teachers">Docenti</button><button data-tab="program">Programmazioni</button><button data-tab="closures">Chiusure</button></div><div id="groups" class="panel"><h3>Gruppi</h3><div class="row"><input id="groupName" placeholder="Es. Young Avanzato"><button id="addGroup">Aggiungi</button></div><div id="groupsList"></div></div><div id="teachers" class="panel" hidden><h3>Docenti <span id="teacherCount"></span></h3><div class="row"><input id="teacherName" placeholder="Nome e cognome"><button id="addTeacher">Aggiungi</button></div><div id="teachersList"></div></div><div id="program" class="panel" hidden><h3>Nuova programmazione</h3><label>Gruppo<select id="pGroup"></select></label><label>Docente<select id="pTeacher"></select></label><label>Giorno<select id="pDay"><option value="1">Lunedì</option><option value="2">Martedì</option><option value="3">Mercoledì</option><option value="4">Giovedì</option><option value="5">Venerdì</option><option value="6">Sabato</option><option value="7">Domenica</option></select></label><div class="twocol"><label>Dal<input id="pFrom" type="date"></label><label>Al<input id="pTo" type="date"></label></div><div class="twocol"><label>Dalle<input id="pStart" type="time"></label><label>Alle<input id="pEnd" type="time"></label></div><button id="addProgram">Salva programmazione</button><div id="programManageList"></div></div><div id="closures" class="panel" hidden><h3>Chiusure</h3><input id="cName" placeholder="Es. Vacanze di Natale"><div class="twocol"><label>Dal<input id="cFrom" type="date"></label><label>Al<input id="cTo" type="date"></label></div><button id="addClosure">Aggiungi chiusura</button><div id="closuresList"></div></div></section></main><nav><button data-page="today">Oggi</button><button data-page="programs">Programmazioni</button><button data-page="payments">Quote</button><button data-page="manage">Gestisci</button></nav></section><script src="app.js?v=1"></script></body></html>
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f2b705">
+<title>Registro Vicolo Cechov</title>
+<link rel="stylesheet" href="style.css?v=2">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js?v=1"></script>
+</head>
+<body>
+<section id="auth">
+  <div class="card login">
+    <h1>VICOLO CECHOV</h1>
+    <h2>Registro</h2>
+    <p>Il Registro usa lo stesso accesso di Gestione Sale.</p>
+    <a class="buttonlink" href="https://fabpa001.github.io/VICOLO-CECHOV-SALE/">Accedi da Gestione Sale</a>
+    <button id="checkAccess" class="secondary">Ho effettuato l'accesso</button>
+    <p id="authmsg" class="muted"></p>
+  </div>
+</section>
+
+<section id="app" hidden>
+<header>
+  <div><b>VICOLO CECHOV</b><small>Registro</small></div>
+  <button id="logout" class="ghost">Esci</button>
+</header>
+
+<main>
+<section id="today" class="page">
+  <h2>Oggi</h2>
+  <div id="todayList"></div>
+  <button id="newRecovery" class="secondary">+ Lezione di recupero</button>
+</section>
+
+<section id="calendar" class="page" hidden>
+  <h2>Calendario</h2>
+  <div class="twocol">
+    <input id="calMonth" type="month">
+    <button id="loadCalendar">Mostra</button>
+  </div>
+  <div id="calendarList"></div>
+</section>
+
+<section id="payments" class="page" hidden>
+  <h2>Pagamenti</h2>
+  <div class="twocol">
+    <label>Gruppo<select id="payGroup"></select></label>
+    <label>Mese<input id="payMonth" type="month"></label>
+  </div>
+  <div id="paySummary" class="summary"></div>
+  <div id="paymentsList"></div>
+</section>
+
+<section id="manage" class="page" hidden>
+  <h2>Gestisci</h2>
+  <div class="tabs">
+    <button data-tab="groups">Gruppi</button>
+    <button data-tab="students">Ragazzi</button>
+    <button data-tab="teachers">Docenti</button>
+    <button data-tab="program">Programmazioni</button>
+    <button data-tab="closures">Chiusure</button>
+    <button data-tab="reports">Report docenti</button>
+  </div>
+
+  <div id="groups" class="panel">
+    <h3>Gruppi</h3>
+    <div class="row"><input id="groupName" placeholder="Es. Young Avanzato"><button id="addGroup">Aggiungi</button></div>
+    <div id="groupsList"></div>
+  </div>
+
+  <div id="students" class="panel" hidden>
+    <h3>Ragazzi</h3>
+    <label>Gruppo<select id="studentGroup"></select></label>
+    <div class="row"><input id="studentName" placeholder="Nome e cognome"><button id="addStudent">Aggiungi</button></div>
+    <div id="studentsList"></div>
+  </div>
+
+  <div id="teachers" class="panel" hidden>
+    <h3>Docenti <span id="teacherCount"></span></h3>
+    <div class="row"><input id="teacherName" placeholder="Nome e cognome"><button id="addTeacher">Aggiungi</button></div>
+    <div id="teachersList"></div>
+  </div>
+
+  <div id="program" class="panel" hidden>
+    <h3>Nuova programmazione</h3>
+    <label>Gruppo<select id="pGroup"></select></label>
+    <label>Docente<select id="pTeacher"></select></label>
+    <label>Giorno<select id="pDay">
+      <option value="1">Lunedì</option><option value="2">Martedì</option><option value="3">Mercoledì</option>
+      <option value="4">Giovedì</option><option value="5">Venerdì</option><option value="6">Sabato</option><option value="7">Domenica</option>
+    </select></label>
+    <div class="twocol"><label>Dal<input id="pFrom" type="date"></label><label>Al<input id="pTo" type="date"></label></div>
+    <div class="twocol"><label>Dalle<input id="pStart" type="time"></label><label>Alle<input id="pEnd" type="time"></label></div>
+    <button id="addProgram">Salva programmazione</button>
+    <div id="programManageList"></div>
+  </div>
+
+  <div id="closures" class="panel" hidden>
+    <h3>Chiusure</h3>
+    <input id="cName" placeholder="Es. Vacanze di Natale">
+    <div class="twocol"><label>Dal<input id="cFrom" type="date"></label><label>Al<input id="cTo" type="date"></label></div>
+    <button id="addClosure">Aggiungi chiusura</button>
+    <div id="closuresList"></div>
+  </div>
+
+  <div id="reports" class="panel" hidden>
+    <h3>Report docenti</h3>
+    <label>Docente<select id="reportTeacher"></select></label>
+    <div class="twocol">
+      <label>Mese<input id="reportMonth" type="month"></label>
+      <button id="monthlyReport">Report mensile</button>
+    </div>
+    <div class="twocol">
+      <label>Anno didattico<select id="reportYear"></select></label>
+      <button id="annualReport">Report annuale</button>
+    </div>
+    <button id="commitmentReport" class="secondary">Quadro impegni annuale</button>
+    <pre id="reportOutput"></pre>
+    <button id="copyReport" hidden>📋 COPIA REPORT</button>
+  </div>
+</section>
+</main>
+
+<nav>
+  <button data-page="today">Oggi</button>
+  <button data-page="calendar">Calendario</button>
+  <button data-page="payments">Pagamenti</button>
+  <button data-page="manage">Gestisci</button>
+</nav>
+</section>
+
+<div id="modal" class="modal" hidden>
+  <div class="modalbox">
+    <button id="closeModal" class="close">×</button>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<script src="app.js?v=2"></script>
+</body>
+</html>
