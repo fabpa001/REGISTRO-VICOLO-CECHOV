@@ -17,7 +17,7 @@
     <p>Accedi con lo stesso account di Gestione Sale.</p>
     <label>Email<input id="authEmail" type="email" autocomplete="username" placeholder="Email"></label>
     <label>Password<input id="authPassword" type="password" autocomplete="current-password" placeholder="Password"></label>
-    <button id="loginBtn">Accedi</button>
+    <button id="loginBtn" type="button" onclick="registroLogin()">Accedi</button>
     <p id="authmsg" class="muted"></p>
   </div>
 </section>
@@ -139,6 +139,22 @@
   </div>
 </div>
 
-<script src="app.js?v=6"></script>
+<script>
+async function registroLogin(){
+  const msg=document.getElementById("authmsg");
+  const email=document.getElementById("authEmail").value.trim();
+  const password=document.getElementById("authPassword").value;
+  if(!email||!password){msg.textContent="Inserisci email e password.";return;}
+  msg.textContent="Accesso...";
+  try{
+    const client=supabase.createClient(window.REGISTRO_CONFIG.url,window.REGISTRO_CONFIG.key);
+    const {error}=await client.auth.signInWithPassword({email,password});
+    if(error){msg.textContent=error.message==="Invalid login credentials"?"Email o password non corretti.":error.message;return;}
+    msg.textContent="Accesso riuscito. Caricamento...";
+    location.reload();
+  }catch(e){msg.textContent="Errore tecnico: "+e.message;}
+}
+</script>
+<script src="app.js?v=7"></script>
 </body>
 </html>
