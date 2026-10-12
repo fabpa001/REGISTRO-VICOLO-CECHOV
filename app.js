@@ -31,7 +31,17 @@ async function boot() {
   else { $("auth").hidden = false; $("app").hidden = true; $("authmsg").textContent = "Accedi da Gestione Sale e poi torna qui."; }
 }
 
-$("checkAccess").onclick = boot;
+async function login() {
+  const email = $("authEmail").value.trim();
+  const password = $("authPassword").value;
+  if (!email || !password) { $("authmsg").textContent = "Inserisci email e password."; return; }
+  $("authmsg").textContent = "Accesso...";
+  const { data, error } = await db.auth.signInWithPassword({ email, password });
+  if (error) { $("authmsg").textContent = error.message === "Invalid login credentials" ? "Email o password non corretti." : error.message; return; }
+  if (data.session) await showApp();
+}
+$("loginBtn").onclick = login;
+$("authPassword").addEventListener("keydown", e => { if (e.key === "Enter") login(); });
 $("logout").onclick = async () => { await db.auth.signOut(); location.reload(); };
 
 async function showApp() {
