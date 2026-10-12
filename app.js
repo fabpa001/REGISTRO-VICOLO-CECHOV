@@ -119,7 +119,8 @@ function fillSelects() {
   const activeGroups = state.groups.filter(x=>x.active), activeTeachers = state.teachers.filter(x=>x.active);
   $("studentGroup").innerHTML = opts(activeGroups, $("studentGroup").value);
   $("pGroup").innerHTML = opts(activeGroups, $("pGroup").value);
-  $("pTeacher").innerHTML = opts(activeTeachers, $("pTeacher").value);\n  $("pAssistant").innerHTML = '<option value="">Nessun assistente</option>' + activeTeachers.map(x=>`<option value="${x.id}" ${x.id===$("pAssistant").value?"selected":""}>${esc(x.name)}</option>`).join("");
+  $("pTeacher").innerHTML = opts(activeTeachers, $("pTeacher").value);
+  $("pAssistant").innerHTML = '<option value="">Nessun assistente</option>' + activeTeachers.map(x=>`<option value="${x.id}" ${x.id===$("pAssistant").value?"selected":""}>${esc(x.name)}</option>`).join("");
   $("payGroup").innerHTML = opts(activeGroups, $("payGroup").value);
   $("reportTeacher").innerHTML = opts(state.teachers, $("reportTeacher").value);
 }
