@@ -365,8 +365,18 @@ async function loadGroupSummary() {
     }
   }
   const programHtml=programs.length?programs.map(p=>`<div class="item"><b>${DAY_NAMES[p.weekday]} ${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)}</b><br>Docente: ${esc(teacherName(p.teacher_id))}${p.assistant_id?`<br>Assistente: ${esc(teacherName(p.assistant_id))}`:""}<br><span class="muted">${fmtDate(p.start_date)} – ${fmtDate(p.end_date)}</span></div>`).join(""):'<div class="empty">Nessuna programmazione inserita per questo anno.</div>';
-  const coverage=programs.length?`Copertura inserita: <b>${fmtDate(programs[0].start_date)}</b> → <b>${fmtDate(programs.reduce((mx,p)=>p.end_date>mx?p.end_date:mx,programs[0].end_date))}</b><br>`:"";
-  $("groupSummaryOutput").innerHTML=`<div class="summary"><b>${esc(groupName(groupId))} — ${label}</b><br>${coverage}Lezioni previste: <b>${occ.length}</b><br>Annullate: <b>${cancelled.length}</b> · Recuperate: <b>${recovered.length}</b> · <span class="${pending.length?"bad":"ok"}">In sospeso: <b>${pending.length}</b></span></div><h4>Programmazione</h4>${programHtml}<h4>Lezioni previste per mese</h4><div class="item">${months.length?months.join(" · "):"Nessuna lezione prevista."}</div><h4>Lezioni da recuperare</h4>${pending.length?`<div class="item bad">${pending.map(x=>fmtDate(x.lesson_date)).join(" · ")}</div>`:'<div class="item ok">Nessuna lezione in sospeso.</div>'}<h4>Controllo buchi</h4>${gaps.length?`<div class="item bad">${gaps.join("<br>")}</div>`:'<div class="item ok">Nessun buco superiore a 7 giorni tra i periodi di programmazione inseriti.</div>'}`;
+  const firstStart=programs.length?programs[0].start_date:null;
+  const lastEnd=programs.length?programs.reduce((mx,p)=>p.end_date>mx?p.end_date:mx,programs[0].end_date):null;
+  const coverage=programs.length?`Copertura inserita: <b>${fmtDate(firstStart)}</b> → <b>${fmtDate(lastEnd)}</b><br>`:"";
+  let coverageCheck="";
+  if(!programs.length) coverageCheck='<div class="item warn">Nessuna programmazione da controllare.</div>';
+  else {
+    const notes=[];
+    if(gaps.length) notes.push(...gaps);
+    if(lastEnd<end) notes.push(`Programmazione inserita solo fino al <b>${fmtDate(lastEnd)}</b>. Non risultano periodi successivi programmati.`);
+    coverageCheck=notes.length?`<div class="item bad">${notes.join("<br>")}</div>`:'<div class="item ok">Programmazione continua nei periodi inseriti.</div>';
+  }
+  $("groupSummaryOutput").innerHTML=`<div class="summary"><b>${esc(groupName(groupId))} — ${label}</b><br>${coverage}Lezioni previste: <b>${occ.length}</b><br>Annullate: <b>${cancelled.length}</b> · Recuperate: <b>${recovered.length}</b> · <span class="${pending.length?"bad":"ok"}">In sospeso: <b>${pending.length}</b></span></div><h4>Programmazione</h4>${programHtml}<h4>Lezioni previste per mese</h4><div class="item">${months.length?months.join(" · "):"Nessuna lezione prevista."}</div><h4>Lezioni da recuperare</h4>${pending.length?`<div class="item bad">${pending.map(x=>fmtDate(x.lesson_date)).join(" · ")}</div>`:'<div class="item ok">Nessuna lezione in sospeso.</div>'}<h4>Controllo copertura</h4>${coverageCheck}`;
 }
 
 async function loadPayments() {
