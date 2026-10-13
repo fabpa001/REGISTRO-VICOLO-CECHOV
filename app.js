@@ -369,12 +369,14 @@ async function loadGroupSummary() {
   const lastEnd=programs.length?programs.reduce((mx,p)=>p.end_date>mx?p.end_date:mx,programs[0].end_date):null;
   const coverage=programs.length?`Copertura inserita: <b>${fmtDate(firstStart)}</b> → <b>${fmtDate(lastEnd)}</b><br>`:"";
   let coverageCheck="";
+  const courseStart=`${y0}-10-01`,courseEnd=`${y0+1}-05-31`;
   if(!programs.length) coverageCheck='<div class="item warn">Nessuna programmazione da controllare.</div>';
   else {
     const notes=[];
+    if(firstStart>courseStart) notes.push(`Programmazione inserita solo dal <b>${fmtDate(firstStart)}</b>. Non risultano periodi precedenti programmati.`);
     if(gaps.length) notes.push(...gaps);
-    if(lastEnd<end) notes.push(`Programmazione inserita solo fino al <b>${fmtDate(lastEnd)}</b>. Non risultano periodi successivi programmati.`);
-    coverageCheck=notes.length?`<div class="item bad">${notes.join("<br>")}</div>`:'<div class="item ok">Programmazione continua nei periodi inseriti.</div>';
+    if(lastEnd<courseEnd) notes.push(`Programmazione inserita solo fino al <b>${fmtDate(lastEnd)}</b>. Non risultano periodi successivi programmati.`);
+    coverageCheck=notes.length?`<div class="item bad">${notes.join("<br>")}</div>`:'<div class="item ok">Copertura completa da ottobre a maggio.</div>';
   }
   $("groupSummaryOutput").innerHTML=`<div class="summary"><b>${esc(groupName(groupId))} — ${label}</b><br>${coverage}Lezioni previste: <b>${occ.length}</b><br>Annullate: <b>${cancelled.length}</b> · Recuperate: <b>${recovered.length}</b> · <span class="${pending.length?"bad":"ok"}">In sospeso: <b>${pending.length}</b></span></div><h4>Programmazione</h4>${programHtml}<h4>Lezioni previste per mese</h4><div class="item">${months.length?months.join(" · "):"Nessuna lezione prevista."}</div><h4>Lezioni da recuperare</h4>${pending.length?`<div class="item bad">${pending.map(x=>fmtDate(x.lesson_date)).join(" · ")}</div>`:'<div class="item ok">Nessuna lezione in sospeso.</div>'}<h4>Controllo copertura</h4>${coverageCheck}`;
 }
