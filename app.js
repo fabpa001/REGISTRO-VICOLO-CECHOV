@@ -60,6 +60,8 @@ function setDefaults() {
   const y = now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear()-1;
   $("reportYear").innerHTML = [y-1,y,y+1].map(v=>`<option value="${v}/${v+1}">${v}/${v+1}</option>`).join("");
   $("reportYear").value = `${y}/${y+1}`;
+  $("summaryYear").innerHTML = $("reportYear").innerHTML;
+  $("summaryYear").value = `${y}/${y+1}`;
 }
 
 function wireNavigation() {
@@ -79,6 +81,7 @@ function wireNavigation() {
       document.querySelectorAll(".panel").forEach(p=>p.hidden=true);
       $(btn.dataset.tab).hidden = false;
       if (btn.dataset.tab === "students") await loadStudents();
+      if (btn.dataset.tab === "groupSummary") await loadGroupSummary();
     };
   });
 }
@@ -100,6 +103,9 @@ function wireActions() {
   $("annualReport").onclick = buildAnnualReport;
   $("commitmentReport").onclick = buildCommitmentReport;
   $("copyReport").onclick = copyReport;
+  $("showGroupSummary").onclick = loadGroupSummary;
+  $("summaryGroup").onchange = loadGroupSummary;
+  $("summaryYear").onchange = loadGroupSummary;
   $("closeModal").onclick = closeModal;
   $("modal").onclick = e => { if (e.target === $("modal")) closeModal(); };
 }
@@ -123,6 +129,7 @@ function fillSelects() {
   $("pAssistant").innerHTML = '<option value="">Nessun assistente</option>' + activeTeachers.map(x=>`<option value="${x.id}" ${x.id===$("pAssistant").value?"selected":""}>${esc(x.name)}</option>`).join("");
   $("payGroup").innerHTML = opts(activeGroups, $("payGroup").value);
   $("reportTeacher").innerHTML = opts(state.teachers, $("reportTeacher").value);
+  $("summaryGroup").innerHTML = opts(state.groups, $("summaryGroup").value);
 }
 
 function renderManage() {
@@ -162,7 +169,7 @@ async function loadStudents() {
   const {data,error}=await db.from("reg_students").select("*").eq("group_id",groupId).order("name"); if(error)return showMessage(error.message);
   $("studentsList").innerHTML = data.length ? data.map(s=>`
     <div class="item"><b>${esc(s.name)}</b> ${s.active?"":'<span class="tag">non attivo</span>'}
-    <div class="actions"><button class="small secondary" onclick="renameStudent('${s.id}')">Rinomina</button><button class="small ${s.active?'danger':'secondary'}" onclick="toggleStudent('${s.id}',${!s.active})">${s.active?'Disattiva':'Riattiva'}</button></div></div>`).join("") : '<div class="empty">Nessun ragazzo inserito.</div>';
+    <div class="actions"><button class="small secondary" onclick="renameStudent('${s.id}')">Rinomina</button><button class="small ${s.active?'danger':'secondary'}" onclick="toggleStudent('${s.id}',${!s.active})">${s.active?'Disattiva':'Riattiva'}</button>${!s.active?`<button class="small danger" onclick="deleteStudent('${s.id}')">Elimina definitivamente</button>`:""}</div></div>`).join("") : '<div class="empty">Nessun ragazzo inserito.</div>';
 }
 async function addStudent() {
   const group_id=$("studentGroup").value,name=$("studentName").value.trim(); if(!group_id)return showMessage("Scegli prima il gruppo."); if(!name)return;
@@ -170,6 +177,23 @@ async function addStudent() {
 }
 window.renameStudent = async id => { const q=await db.from("reg_students").select("name").eq("id",id).single(); if(q.error)return showMessage(q.error.message); const name=prompt("Nuovo nome",q.data.name); if(!name?.trim())return; const {error}=await db.from("reg_students").update({name:name.trim()}).eq("id",id); if(error)return showMessage(error.message); await loadStudents(); };
 window.toggleStudent = async (id,active) => { const {error}=await db.from("reg_students").update({active}).eq("id",id); if(error)return showMessage(error.message); await loadStudents(); };
+window.deleteStudent = async id => {
+  const q=await db.from("reg_students").select("*").eq("id",id).single(); if(q.error)return showMessage(q.error.message);
+  if(q.data.active)return showMessage("Prima disattiva il ragazzo.");
+  const [a,p]=await Promise.all([
+    db.from("reg_absences").select("id",{count:"exact",head:true}).eq("student_id",id),
+    db.from("reg_payments").select("id",{count:"exact",head:true}).eq("student_id",id)
+  ]);
+  if(a.error)return showMessage(a.error.message); if(p.error)return showMessage(p.error.message);
+  const ac=a.count||0,pc=p.count||0;
+  let msg=`Eliminare definitivamente ${q.data.name}?\n\nQuesta operazione non può essere annullata.`;
+  if(ac||pc)msg+=`\nSaranno eliminati anche ${ac} assenze e ${pc} registrazioni di pagamento collegate.`;
+  if(!confirm(msg))return;
+  if(ac){const d=await db.from("reg_absences").delete().eq("student_id",id);if(d.error)return showMessage(d.error.message);}
+  if(pc){const d=await db.from("reg_payments").delete().eq("student_id",id);if(d.error)return showMessage(d.error.message);}
+  const d=await db.from("reg_students").delete().eq("id",id); if(d.error)return showMessage(d.error.message);
+  await loadStudents();
+};
 
 async function addTeacher() { const name=$("teacherName").value.trim(); if(!name)return; const {error}=await db.from("reg_teachers").insert({name,active:true}); if(error)return showMessage(error.message); $("teacherName").value=""; await refreshCore(); }
 window.renameTeacher = async id => { const current=state.teachers.find(x=>x.id===id); const name=prompt("Nuovo nome del docente",current?.name||""); if(!name?.trim())return; const {error}=await db.from("reg_teachers").update({name:name.trim()}).eq("id",id); if(error)return showMessage(error.message); await refreshCore(); };
@@ -217,7 +241,21 @@ async function renderToday() {
 }
 
 window.cancelRegular = async (groupId,date) => { if(!confirm("Confermi che questa lezione è annullata?"))return; try{const row=await ensureRegularLesson(groupId,date); const {error}=await db.from("reg_lessons").update({status:"cancelled"}).eq("id",row.id); if(error)throw error; await renderToday();}catch(e){showMessage(e.message);} };
-window.restoreRegular = async (groupId,date) => { try{const row=await ensureRegularLesson(groupId,date); const {error}=await db.from("reg_lessons").update({status:"scheduled"}).eq("id",row.id); if(error)throw error; await renderToday();}catch(e){showMessage(e.message);} };
+window.restoreRegular = async (groupId,date) => {
+  try{
+    const row=await ensureRegularLesson(groupId,date);
+    const linked=await db.from("reg_lessons").select("id,lesson_date").eq("kind","recovery").eq("recovers_lesson_id",row.id);
+    if(linked.error)throw linked.error;
+    if((linked.data||[]).length){
+      const dates=(linked.data||[]).map(x=>fmtDate(x.lesson_date)).join(", ");
+      if(!confirm(`Questa lezione ha già un recupero collegato (${dates}).\n\nPremi OK per ripristinare la lezione ed eliminare il recupero collegato.`))return;
+      const ids=(linked.data||[]).map(x=>x.id);
+      const del=await db.from("reg_lessons").delete().in("id",ids); if(del.error)throw del.error;
+    }
+    const {error}=await db.from("reg_lessons").update({status:"scheduled"}).eq("id",row.id); if(error)throw error;
+    await renderToday();
+  }catch(e){showMessage(e.message);}
+};
 window.openRegularAbsences = async (groupId,date) => { try{const row=await ensureRegularLesson(groupId,date); await openAbsenceModal(row.id,groupId);}catch(e){showMessage(e.message);} };
 window.openExistingAbsences = async (lessonId,groupId) => openAbsenceModal(lessonId,groupId);
 
@@ -237,14 +275,56 @@ function openAssistantModal(row,expected) { const active=state.teachers.filter(x
 window.saveAssistantChange = async lessonId => { const id=$("modalAssistant").value||null; const {error}=await db.from("reg_lessons").update({substitute_assistant_id:id}).eq("id",lessonId); if(error)return showMessage(error.message); closeModal(); await renderToday(); };
 
 
+let recoveryPendingCache = [];
+async function pendingCancelledLessons() {
+  const [cancelledQ,recoveryQ]=await Promise.all([
+    db.from("reg_lessons").select("*").eq("kind","regular").eq("status","cancelled").order("lesson_date"),
+    db.from("reg_lessons").select("recovers_lesson_id").eq("kind","recovery")
+  ]);
+  if(cancelledQ.error)throw cancelledQ.error; if(recoveryQ.error)throw recoveryQ.error;
+  const used=new Set((recoveryQ.data||[]).map(x=>x.recovers_lesson_id).filter(Boolean));
+  return (cancelledQ.data||[]).filter(x=>!used.has(x.id));
+}
 window.openRecoveryModal = async preferredId => {
-  const cancelledQ=await db.from("reg_lessons").select("*").eq("kind","regular").eq("status","cancelled").order("lesson_date"),recoveryQ=await db.from("reg_lessons").select("recovers_lesson_id").eq("kind","recovery"); if(cancelledQ.error)return showMessage(cancelledQ.error.message); if(recoveryQ.error)return showMessage(recoveryQ.error.message);
-  const used=new Set((recoveryQ.data||[]).map(x=>x.recovers_lesson_id).filter(Boolean)),available=(cancelledQ.data||[]).filter(x=>!used.has(x.id));
-  if(!available.length){openModal('<h3>Lezione di recupero</h3><div class="empty">Non ci sono lezioni annullate ancora da recuperare.</div>');return;}
-  openModal(`<h3>Nuova lezione di recupero</h3><label>Recupera<select id="recoveryOriginal">${available.map(x=>`<option value="${x.id}" ${x.id===preferredId?'selected':''}>${esc(groupName(x.group_id))} — ${fmtDate(x.lesson_date)}</option>`).join("")}</select></label><label>Data del recupero<input id="recoveryDate" type="date"></label><button onclick="saveRecovery()">Crea recupero</button>`);
+  try{
+    recoveryPendingCache=await pendingCancelledLessons();
+    if(!recoveryPendingCache.length){openModal('<h3>Lezione di recupero</h3><div class="empty">Non ci sono lezioni annullate ancora da recuperare.</div>');return;}
+    const preferred=recoveryPendingCache.find(x=>x.id===preferredId)||recoveryPendingCache[0];
+    const groupIds=[...new Set(recoveryPendingCache.map(x=>x.group_id))];
+    openModal(`<h3>Nuova lezione di recupero</h3><p class="muted">Scegli il gruppo: ti mostro solo le lezioni ancora in sospeso.</p><label>Gruppo<select id="recoveryGroup" onchange="refreshRecoverySourceOptions()">${groupIds.map(id=>`<option value="${id}" ${id===preferred.group_id?"selected":""}>${esc(groupName(id))}</option>`).join("")}</select></label><label>Lezione da recuperare<select id="recoveryOriginal"></select></label><div id="recoveryPendingInfo" class="summary"></div><label>Data del recupero<input id="recoveryDate" type="date"></label><button onclick="saveRecovery()">Crea recupero</button>`);
+    refreshRecoverySourceOptions(preferred.id);
+  }catch(e){showMessage(e.message);}
 };
-window.saveRecovery = async () => { const originalId=$("recoveryOriginal").value,date=$("recoveryDate").value; if(!originalId||!date)return showMessage("Scegli la lezione e la data del recupero."); const q=await db.from("reg_lessons").select("*").eq("id",originalId).single(); if(q.error)return showMessage(q.error.message); const {error}=await db.from("reg_lessons").insert({group_id:q.data.group_id,lesson_date:date,kind:"recovery",status:"scheduled",recovers_lesson_id:originalId}); if(error)return showMessage(error.message); closeModal(); await renderToday(); };
-window.deleteRecovery = async id => { if(!confirm("Eliminare questa lezione di recupero?"))return; const {error}=await db.from("reg_lessons").delete().eq("id",id); if(error)return showMessage(error.message); await renderToday(); };
+window.refreshRecoverySourceOptions = preferredId => {
+  const groupId=$("recoveryGroup")?.value; if(!groupId)return;
+  const available=recoveryPendingCache.filter(x=>x.group_id===groupId);
+  $("recoveryOriginal").innerHTML=available.map(x=>`<option value="${x.id}" ${x.id===preferredId?"selected":""}>${fmtDate(x.lesson_date)} — annullata</option>`).join("");
+  $("recoveryPendingInfo").innerHTML=`<b>Lezioni in sospeso: ${available.length}</b>${available.length?`<br>${available.map(x=>fmtDate(x.lesson_date)).join(" · ")}`:""}`;
+};
+window.saveRecovery = async () => {
+  const originalId=$("recoveryOriginal").value,date=$("recoveryDate").value; if(!originalId||!date)return showMessage("Scegli la lezione e la data del recupero.");
+  const q=await db.from("reg_lessons").select("*").eq("id",originalId).single(); if(q.error)return showMessage(q.error.message);
+  const {error}=await db.from("reg_lessons").insert({group_id:q.data.group_id,lesson_date:date,kind:"recovery",status:"scheduled",recovers_lesson_id:originalId}); if(error)return showMessage(error.message);
+  closeModal(); await renderToday();
+};
+window.openRecoveryManage = async id => {
+  const q=await db.from("reg_lessons").select("*").eq("id",id).eq("kind","recovery").single(); if(q.error)return showMessage(q.error.message);
+  const originalQ=q.data.recovers_lesson_id?await db.from("reg_lessons").select("*").eq("id",q.data.recovers_lesson_id).single():null;
+  const original=originalQ&&!originalQ.error?originalQ.data:null;
+  openModal(`<h3>Gestisci recupero</h3><p><b>${esc(groupName(q.data.group_id))}</b></p><p class="muted">${original?`Recupera la lezione del ${fmtDate(original.lesson_date)}`:"Recupero non collegato a una lezione originale."}</p><label>Data del recupero<input id="editRecoveryDate" type="date" value="${q.data.lesson_date}"></label><button onclick="saveRecoveryDate('${q.data.id}')">Salva nuova data</button><button class="danger" onclick="deleteRecovery('${q.data.id}',true)">Elimina recupero</button>`);
+};
+window.saveRecoveryDate = async id => {
+  const date=$("editRecoveryDate").value; if(!date)return showMessage("Scegli la nuova data.");
+  const {error}=await db.from("reg_lessons").update({lesson_date:date}).eq("id",id); if(error)return showMessage(error.message);
+  closeModal(); await renderCalendar(); await renderToday();
+};
+window.deleteRecovery = async (id,fromModal=false) => {
+  if(!confirm("Eliminare questa lezione di recupero? La lezione originale tornerà tra quelle in sospeso."))return;
+  const {error}=await db.from("reg_lessons").delete().eq("id",id); if(error)return showMessage(error.message);
+  if(fromModal)closeModal();
+  await renderToday();
+  if(!$("calendar").hidden)await renderCalendar();
+};
 
 function datesForProgramInRange(p,start,end) {
   const lo=p.start_date>start?p.start_date:start,hi=p.end_date<end?p.end_date:end; if(lo>hi)return[]; let d=parseDate(lo),wd=d.getDay(); wd=wd===0?7:wd; d.setDate(d.getDate()+((p.weekday-wd+7)%7)); const out=[];
@@ -255,9 +335,37 @@ function scheduledOccurrences(start,end,onlyTeacherId=null) { const map=new Map(
 async function renderCalendar() {
   const ym=$("calMonth").value||monthValueNow(),[y,m]=ym.split("-").map(Number),start=`${y}-${String(m).padStart(2,"0")}-01`,end=isoDate(new Date(y,m,0,12)),occ=scheduledOccurrences(start,end),q=await db.from("reg_lessons").select("*").gte("lesson_date",start).lte("lesson_date",end); if(q.error)return showMessage(q.error.message);
   const rows=q.data||[],regularMap=new Map(rows.filter(x=>x.kind==="regular").map(x=>[`${x.group_id}|${x.lesson_date}`,x])),recoveries=rows.filter(x=>x.kind==="recovery"),originalMap=await originalMapForRecoveries(recoveries),items=[];
-  for(const o of occ){const row=regularMap.get(`${o.program.group_id}|${o.date}`); items.push({date:o.date,time:o.program.start_time,html:`<div class="lesson ${row?.status==="cancelled"?'cancelled':''}"><b>${esc(groupName(o.program.group_id))}</b><br>${o.program.start_time.slice(0,5)}–${o.program.end_time.slice(0,5)} · ${esc(teacherName(row?.substitute_teacher_id||o.program.teacher_id))}${o.program.assistant_id?` · Assistente: ${esc(teacherName(row?.substitute_assistant_id||o.program.assistant_id))}`:""} ${row?.status==="cancelled"?'<span class="tag cancel">annullata</span>':''} ${row?.substitute_teacher_id?'<span class="tag sub">cambio docente</span>':''}</div>`});}
-  for(const r of recoveries){const expected=expectedTeacherForRecovery(r,originalMap),original=originalMap.get(r.recovers_lesson_id); items.push({date:r.lesson_date,time:"99:99",html:`<div class="lesson recovery"><b>${esc(groupName(r.group_id))}</b> <span class="tag recovery">RECUPERO</span><br>${original?'della lezione del '+fmtDate(original.lesson_date):''}<br>Docente: ${esc(teacherName(r.substitute_teacher_id||expected))}${expectedAssistantForRecovery(r,originalMap)?` · Assistente: ${esc(teacherName(r.substitute_assistant_id||expectedAssistantForRecovery(r,originalMap)))}`:""}</div>`});}
+  for(const o of occ){const row=regularMap.get(`${o.program.group_id}|${o.date}`); items.push({date:o.date,time:o.program.start_time,html:`<div class="lesson ${row?.status==="cancelled"?"cancelled":""}"><b>${esc(groupName(o.program.group_id))}</b><br>${o.program.start_time.slice(0,5)}–${o.program.end_time.slice(0,5)} · ${esc(teacherName(row?.substitute_teacher_id||o.program.teacher_id))}${o.program.assistant_id?` · Assistente: ${esc(teacherName(row?.substitute_assistant_id||o.program.assistant_id))}`:""} ${row?.status==="cancelled"?'<span class="tag cancel">annullata</span>':""} ${row?.substitute_teacher_id?'<span class="tag sub">cambio docente</span>':""}</div>`});}
+  for(const r of recoveries){const expected=expectedTeacherForRecovery(r,originalMap),original=originalMap.get(r.recovers_lesson_id),expectedAssistant=expectedAssistantForRecovery(r,originalMap); items.push({date:r.lesson_date,time:"99:99",html:`<div class="lesson recovery clickable" onclick="openRecoveryManage('${r.id}')" title="Clicca per modificare o eliminare"><b>${esc(groupName(r.group_id))}</b> <span class="tag recovery">RECUPERO</span><br>${original?'della lezione del '+fmtDate(original.lesson_date):""}<br>Docente: ${esc(teacherName(r.substitute_teacher_id||expected))}${expectedAssistant?` · Assistente: ${esc(teacherName(r.substitute_assistant_id||expectedAssistant))}`:""}<br><span class="muted">Clicca per gestire il recupero</span></div>`});}
   items.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time)); let html="",last=""; for(const it of items){if(it.date!==last){html+=`<div class="calendar-day">${parseDate(it.date).toLocaleDateString("it-IT",{weekday:"long",day:"2-digit",month:"long"})}</div>`; last=it.date;} html+=it.html;} $("calendarList").innerHTML=html||'<div class="empty">Nessuna lezione nel mese selezionato.</div>';
+}
+
+async function loadGroupSummary() {
+  const groupId=$("summaryGroup").value,label=$("summaryYear").value;
+  if(!groupId||!label){$("groupSummaryOutput").innerHTML='<div class="empty">Scegli un gruppo e l’anno didattico.</div>';return;}
+  const {start,end}=academicRange(label);
+  const programs=state.programs.filter(p=>p.group_id===groupId&&p.end_date>=start&&p.start_date<=end).sort((a,b)=>a.start_date.localeCompare(b.start_date));
+  const [cancelledQ,recoveryQ]=await Promise.all([
+    db.from("reg_lessons").select("*").eq("group_id",groupId).eq("kind","regular").eq("status","cancelled").gte("lesson_date",start).lte("lesson_date",end).order("lesson_date"),
+    db.from("reg_lessons").select("*").eq("group_id",groupId).eq("kind","recovery").order("lesson_date")
+  ]);
+  if(cancelledQ.error)return showMessage(cancelledQ.error.message); if(recoveryQ.error)return showMessage(recoveryQ.error.message);
+  const cancelled=cancelledQ.data||[],recoveries=recoveryQ.data||[],used=new Set(recoveries.map(x=>x.recovers_lesson_id).filter(Boolean));
+  const pending=cancelled.filter(x=>!used.has(x.id)),recovered=cancelled.filter(x=>used.has(x.id));
+  const occ=scheduledOccurrences(start,end).filter(x=>x.program.group_id===groupId);
+  const y0=Number(label.split("/")[0]),order=[9,10,11,12,1,2,3,4,5,6,7,8];
+  const months=order.map(m=>{const y=m>=9?y0:y0+1,n=occ.filter(x=>Number(x.date.slice(0,4))===y&&Number(x.date.slice(5,7))===m).length;return n?`${MONTH_NAMES[m-1]}: <b>${n}</b>`:null;}).filter(Boolean);
+  let gaps=[];
+  if(programs.length>1){
+    let currentEnd=programs[0].end_date;
+    for(let i=1;i<programs.length;i++){
+      const next=programs[i],d1=parseDate(currentEnd),d2=parseDate(next.start_date),days=Math.round((d2-d1)/86400000)-1;
+      if(days>7)gaps.push(`${fmtDate(currentEnd)} → ${fmtDate(next.start_date)} (${days} giorni senza programmazione)`);
+      if(next.end_date>currentEnd)currentEnd=next.end_date;
+    }
+  }
+  const programHtml=programs.length?programs.map(p=>`<div class="item"><b>${DAY_NAMES[p.weekday]} ${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)}</b><br>Docente: ${esc(teacherName(p.teacher_id))}${p.assistant_id?`<br>Assistente: ${esc(teacherName(p.assistant_id))}`:""}<br><span class="muted">${fmtDate(p.start_date)} – ${fmtDate(p.end_date)}</span></div>`).join(""):'<div class="empty">Nessuna programmazione inserita per questo anno.</div>';
+  $("groupSummaryOutput").innerHTML=`<div class="summary"><b>${esc(groupName(groupId))} — ${label}</b><br>Lezioni previste: <b>${occ.length}</b><br>Annullate: <b>${cancelled.length}</b> · Recuperate: <b>${recovered.length}</b> · <span class="${pending.length?"bad":"ok"}">In sospeso: <b>${pending.length}</b></span></div><h4>Programmazione</h4>${programHtml}<h4>Lezioni previste per mese</h4><div class="item">${months.length?months.join(" · "):"Nessuna lezione prevista."}</div><h4>Lezioni da recuperare</h4>${pending.length?`<div class="item bad">${pending.map(x=>fmtDate(x.lesson_date)).join(" · ")}</div>`:'<div class="item ok">Nessuna lezione in sospeso.</div>'}<h4>Controllo buchi</h4>${gaps.length?`<div class="item bad">${gaps.join("<br>")}</div>`:'<div class="item ok">Nessun buco superiore a 7 giorni tra i periodi di programmazione inseriti.</div>'}`;
 }
 
 async function loadPayments() {
