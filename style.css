@@ -43,3 +43,8 @@ details{background:white;border-radius:12px;margin:8px 0;padding:10px 12px}summa
 
 .clickable{cursor:pointer;transition:transform .08s ease,box-shadow .08s ease}.clickable:hover{box-shadow:0 4px 14px #00000014}.clickable:active{transform:scale(.995)}
 #groupSummaryOutput h4{margin:16px 0 6px}
+
+.annual-detail-btn{background:var(--gold);color:var(--ink);font-weight:850;border:2px solid #d99b00;box-shadow:0 3px 0 #c78f00;padding:14px 16px;margin-top:12px;letter-spacing:.01em}
+.annual-detail-btn:hover{filter:brightness(.98)}
+.annual-detail-btn:active{transform:translateY(1px);box-shadow:0 2px 0 #c78f00}
+.report-help{margin:3px 2px 10px;color:var(--muted);font-size:12px;text-align:center}
