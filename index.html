@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#f2b705">
 <title>Registro Vicolo Cechov</title>
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js?v=1"></script>
 </head>
@@ -22,9 +22,18 @@
   </div>
 </section>
 
+<section id="denied" hidden>
+  <div class="card login">
+    <h1>VICOLO CECHOV</h1>
+    <h2>Registro</h2>
+    <p><b>Non sei abilitato a questo Registro.</b></p>
+    <p class="muted">Puoi continuare a usare Gestione Sale con il tuo account.</p>
+  </div>
+</section>
+
 <section id="app" hidden>
 <header>
-  <div><b>VICOLO CECHOV</b><small>Registro</small></div>
+  <div><b>VICOLO CECHOV</b><small id="roleBadge">Registro</small></div>
   <button id="logout" class="ghost">Esci</button>
 </header>
 
@@ -167,6 +176,6 @@ async function registroLogin(){
   }catch(e){msg.textContent="Errore tecnico: "+e.message;}
 }
 </script>
-<script src="app.js?v=14"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>
