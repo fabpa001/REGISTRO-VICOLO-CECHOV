@@ -40,3 +40,6 @@ pre{white-space:pre-wrap;word-break:break-word;background:#fff;border:1px solid 
 details{background:white;border-radius:12px;margin:8px 0;padding:10px 12px}summary{font-weight:750;cursor:pointer}
 .calendar-day{font-size:13px;color:var(--muted);margin-top:14px;font-weight:800;text-transform:uppercase}
 @media(max-width:520px){.row,.twocol{grid-template-columns:1fr}.actions button{min-width:46%}.login{margin:8vh 14px}.tabs{grid-template-columns:1fr 1fr}}
+
+.clickable{cursor:pointer;transition:transform .08s ease,box-shadow .08s ease}.clickable:hover{box-shadow:0 4px 14px #00000014}.clickable:active{transform:scale(.995)}
+#groupSummaryOutput h4{margin:16px 0 6px}
