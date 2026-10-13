@@ -2,7 +2,7 @@ const cfg = window.REGISTRO_CONFIG || {};
 const db = supabase.createClient(cfg.url, cfg.key);
 const $ = id => document.getElementById(id);
 
-const state = { groups: [], teachers: [], programs: [], closures: [] };
+const state = { groups: [], teachers: [], programs: [], closures: [], access: { role:null, teacherId:null } };
 const DAY_NAMES = ["", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"];
 const MONTH_NAMES = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
 
@@ -23,6 +23,35 @@ function academicYearForMonth(ym) { const [y,m] = ym.split("-").map(Number); ret
 function academicRange(label) { const y = Number(label.split("/")[0]); return { start:`${y}-09-01`, end:`${y+1}-08-31` }; }
 function opts(items, selected="") { return '<option value="">Scegli…</option>' + items.map(x=>`<option value="${x.id}" ${x.id===selected?"selected":""}>${esc(x.name)}</option>`).join(""); }
 function showMessage(msg) { alert(msg); }
+function isAdmin() { return state.access.role === "admin"; }
+function myTeacherId() { return state.access.teacherId || null; }
+
+async function loadAccess() {
+  const [r,t]=await Promise.all([db.rpc("reg_my_role"),db.rpc("reg_my_teacher_id")]);
+  if(r.error)throw r.error;
+  if(t.error)throw t.error;
+  state.access={role:r.data||null,teacherId:t.data||null};
+  return !!state.access.role;
+}
+
+function applyAccessUI() {
+  const admin=isAdmin();
+  const payNav=document.querySelector('nav button[data-page="payments"]');
+  const manageNav=document.querySelector('nav button[data-page="manage"]');
+  if(payNav)payNav.hidden=!admin;
+  if(manageNav)manageNav.textContent=admin?"Gestisci":"Report";
+  document.querySelector("nav")?.classList.toggle("teacher-nav",!admin);
+  $("newRecovery").hidden=!admin;
+  document.querySelectorAll("[data-tab]").forEach(btn=>{
+    const allowed=admin || btn.dataset.tab==="reports";
+    btn.hidden=!allowed;
+  });
+  if(!admin){
+    document.querySelectorAll(".panel").forEach(p=>p.hidden=true);
+    $("reports").hidden=false;
+  }
+  $("roleBadge").textContent=admin?"Registro · Admin":"Registro · Docente";
+}
 
 async function boot() {
   if (!cfg.url || !cfg.key) { $("authmsg").textContent = "Configurazione non disponibile."; return; }
@@ -45,11 +74,26 @@ $("authPassword").addEventListener("keydown", e => { if (e.key === "Enter") logi
 $("logout").onclick = async () => { await db.auth.signOut(); location.reload(); };
 
 async function showApp() {
-  $("auth").hidden = true;
-  $("app").hidden = false;
-  setDefaults(); wireNavigation(); wireActions();
-  await refreshCore();
-  await renderToday();
+  try{
+    const allowed=await loadAccess();
+    $("auth").hidden=true;
+    if(!allowed){
+      $("app").hidden=true;
+      $("denied").hidden=false;
+      return;
+    }
+    $("denied").hidden=true;
+    $("app").hidden=false;
+    setDefaults(); wireNavigation(); wireActions();
+    await refreshCore();
+    applyAccessUI();
+    await renderToday();
+  }catch(e){
+    console.error(e);
+    $("auth").hidden=false;
+    $("app").hidden=true;
+    $("authmsg").textContent="Errore nel controllo dei permessi: "+e.message;
+  }
 }
 
 function setDefaults() {
@@ -73,6 +117,10 @@ function wireNavigation() {
       if (btn.dataset.page === "today") await renderToday();
       if (btn.dataset.page === "calendar") await renderCalendar();
       if (btn.dataset.page === "payments") await loadPayments();
+      if (btn.dataset.page === "manage" && !isAdmin()) {
+        document.querySelectorAll(".panel").forEach(p=>p.hidden=true);
+        $("reports").hidden=false;
+      }
     };
   });
   document.querySelector('nav button[data-page="today"]')?.classList.add("active");
@@ -128,7 +176,10 @@ function fillSelects() {
   $("pTeacher").innerHTML = opts(activeTeachers, $("pTeacher").value);
   $("pAssistant").innerHTML = '<option value="">Nessun assistente</option>' + activeTeachers.map(x=>`<option value="${x.id}" ${x.id===$("pAssistant").value?"selected":""}>${esc(x.name)}</option>`).join("");
   $("payGroup").innerHTML = opts(activeGroups, $("payGroup").value);
-  $("reportTeacher").innerHTML = opts(state.teachers, $("reportTeacher").value);
+  const reportPeople=isAdmin()?state.teachers:state.teachers.filter(x=>x.id===myTeacherId());
+  $("reportTeacher").innerHTML = opts(reportPeople, isAdmin()?$("reportTeacher").value:myTeacherId());
+  if(!isAdmin()&&myTeacherId()){$("reportTeacher").value=myTeacherId();$("reportTeacher").disabled=true;}
+  else $("reportTeacher").disabled=false;
   $("summaryGroup").innerHTML = opts(state.groups, $("summaryGroup").value);
 }
 
@@ -227,18 +278,52 @@ function expectedAssistantForRecovery(recovery,originalMap) { const original=ori
 async function renderToday() {
   try {
     const date=todayISO(),rows=await lessonRowsOn(date),regularRows=new Map(rows.filter(x=>x.kind==="regular").map(x=>[`${x.group_id}|${x.lesson_date}`,x])),recoveries=rows.filter(x=>x.kind==="recovery"),originalMap=await originalMapForRecoveries(recoveries),programs=regularProgramsOn(date);
+    const admin=isAdmin(),me=myTeacherId();
     let html=""; if(isClosed(date))html+='<div class="empty">Oggi è inserita una chiusura.</div>';
     for(const p of programs){
       const row=regularRows.get(`${p.group_id}|${date}`),cancelled=row?.status==="cancelled",actual=row?.substitute_teacher_id||p.teacher_id,actualAssistant=p.assistant_id?(row?.substitute_assistant_id||p.assistant_id):null;
-      html+=`<div class="lesson ${cancelled?'cancelled':''}"><b>${esc(groupName(p.group_id))}</b><br>${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)}<br>Docente: <b>${esc(teacherName(actual))}</b>${actualAssistant?`<br>Assistente: <b>${esc(teacherName(actualAssistant))}</b>`:""} ${row?.substitute_teacher_id?'<span class="tag sub">Cambio docente</span>':''} ${row?.substitute_assistant_id?'<span class="tag sub">Cambio assistente</span>':''} ${cancelled?'<span class="tag cancel">Lezione annullata</span>':''}<div class="actions">${cancelled?`<button class="secondary" onclick="restoreRegular('${p.group_id}','${date}')">Ripristina</button><button onclick="openRecoveryModal('${row.id}')">Crea recupero</button>`:`<button onclick="openRegularAbsences('${p.group_id}','${date}')">Assenze</button><button class="secondary" onclick="openRegularTeacherChange('${p.group_id}','${date}')">Cambio docente</button>${p.assistant_id?`<button class="secondary" onclick="openRegularAssistantChange('${p.group_id}','${date}')">Cambio assistente</button>`:""}<button class="danger" onclick="cancelRegular('${p.group_id}','${date}')">Annulla</button>`}</div></div>`;
+      let actions="";
+      if(admin){
+        actions=cancelled
+          ? `<button class="secondary" onclick="restoreRegular('${p.group_id}','${date}')">Ripristina</button><button onclick="openRecoveryModal('${row.id}')">Crea recupero</button>`
+          : `<button onclick="openRegularAbsences('${p.group_id}','${date}')">Assenze</button><button class="secondary" onclick="openRegularTeacherChange('${p.group_id}','${date}')">Cambio docente</button>${p.assistant_id?`<button class="secondary" onclick="openRegularAssistantChange('${p.group_id}','${date}')">Cambio assistente</button>`:""}<button class="danger" onclick="cancelRegular('${p.group_id}','${date}')">Annulla</button>`;
+      }else if(!cancelled&&me){
+        const canAbs=actual===me||actualAssistant===me;
+        if(canAbs)actions+=`<button onclick="openRegularAbsences('${p.group_id}','${date}')">Assenze</button>`;
+        if(actual!==me&&!row?.substitute_teacher_id)actions+=`<button class="self-sub" onclick="claimSelfRegular('${p.group_id}','${date}','${p.teacher_id}')">Mi sostituisco io</button>`;
+      }
+      html+=`<div class="lesson ${cancelled?'cancelled':''}"><b>${esc(groupName(p.group_id))}</b><br>${p.start_time.slice(0,5)}–${p.end_time.slice(0,5)}<br>Docente: <b>${esc(teacherName(actual))}</b>${actualAssistant?`<br>Assistente: <b>${esc(teacherName(actualAssistant))}</b>`:""} ${row?.substitute_teacher_id?'<span class="tag sub">Cambio docente</span>':''} ${row?.substitute_assistant_id?'<span class="tag sub">Cambio assistente</span>':''} ${cancelled?'<span class="tag cancel">Lezione annullata</span>':''}${actions?`<div class="actions">${actions}</div>`:""}</div>`;
     }
     for(const r of recoveries){
       const original=originalMap.get(r.recovers_lesson_id),expected=expectedTeacherForRecovery(r,originalMap),expectedAssistant=expectedAssistantForRecovery(r,originalMap),actual=r.substitute_teacher_id||expected,actualAssistant=expectedAssistant?(r.substitute_assistant_id||expectedAssistant):null;
-      html+=`<div class="lesson recovery"><b>${esc(groupName(r.group_id))}</b> <span class="tag recovery">RECUPERO</span><br>${original?'Recupero della lezione del '+fmtDate(original.lesson_date):'Lezione di recupero'}<br>Docente: <b>${esc(teacherName(actual))}</b>${actualAssistant?`<br>Assistente: <b>${esc(teacherName(actualAssistant))}</b>`:""} ${r.substitute_teacher_id?'<span class="tag sub">Cambio docente</span>':''} ${r.substitute_assistant_id?'<span class="tag sub">Cambio assistente</span>':''}<div class="actions"><button onclick="openExistingAbsences('${r.id}','${r.group_id}')">Assenze</button><button class="secondary" onclick="openExistingTeacherChange('${r.id}')">Cambio docente</button>${expectedAssistant?`<button class="secondary" onclick="openExistingAssistantChange('${r.id}')">Cambio assistente</button>`:""}<button class="danger" onclick="deleteRecovery('${r.id}')">Elimina recupero</button></div></div>`;
+      let actions="";
+      if(admin){
+        actions=`<button onclick="openExistingAbsences('${r.id}','${r.group_id}')">Assenze</button><button class="secondary" onclick="openExistingTeacherChange('${r.id}')">Cambio docente</button>${expectedAssistant?`<button class="secondary" onclick="openExistingAssistantChange('${r.id}')">Cambio assistente</button>`:""}<button class="danger" onclick="deleteRecovery('${r.id}')">Elimina recupero</button>`;
+      }else if(me){
+        const canAbs=actual===me||actualAssistant===me;
+        if(canAbs)actions+=`<button onclick="openExistingAbsences('${r.id}','${r.group_id}')">Assenze</button>`;
+        if(actual!==me&&!r.substitute_teacher_id)actions+=`<button class="self-sub" onclick="claimSelfExisting('${r.id}','${expected||""}')">Mi sostituisco io</button>`;
+      }
+      html+=`<div class="lesson recovery"><b>${esc(groupName(r.group_id))}</b> <span class="tag recovery">RECUPERO</span><br>${original?'Recupero della lezione del '+fmtDate(original.lesson_date):'Lezione di recupero'}<br>Docente: <b>${esc(teacherName(actual))}</b>${actualAssistant?`<br>Assistente: <b>${esc(teacherName(actualAssistant))}</b>`:""} ${r.substitute_teacher_id?'<span class="tag sub">Cambio docente</span>':''} ${r.substitute_assistant_id?'<span class="tag sub">Cambio assistente</span>':''}${actions?`<div class="actions">${actions}</div>`:""}</div>`;
     }
     if(!html)html='<div class="empty">Nessuna lezione oggi.</div>'; $("todayList").innerHTML=html;
   } catch(e){ console.error(e); $("todayList").innerHTML='<div class="empty">Errore nel caricamento delle lezioni.</div>'; }
 }
+
+window.claimSelfRegular = async (groupId,date,expectedTeacherId) => {
+  const expected=teacherName(expectedTeacherId);
+  if(!confirm(`Confermi che sostituisci ${expected} in questa lezione?`))return;
+  const {error}=await db.rpc("reg_claim_substitution",{p_group_id:groupId,p_lesson_date:date});
+  if(error)return showMessage(error.message);
+  await renderToday();
+};
+window.claimSelfExisting = async (lessonId,expectedTeacherId) => {
+  const expected=teacherName(expectedTeacherId);
+  if(!confirm(`Confermi che sostituisci ${expected} in questa lezione?`))return;
+  const {error}=await db.rpc("reg_claim_existing_substitution",{p_lesson_id:lessonId});
+  if(error)return showMessage(error.message);
+  await renderToday();
+};
 
 window.cancelRegular = async (groupId,date) => { if(!confirm("Confermi che questa lezione è annullata?"))return; try{const row=await ensureRegularLesson(groupId,date); const {error}=await db.from("reg_lessons").update({status:"cancelled"}).eq("id",row.id); if(error)throw error; await renderToday();}catch(e){showMessage(e.message);} };
 window.restoreRegular = async (groupId,date) => {
@@ -336,7 +421,12 @@ async function renderCalendar() {
   const ym=$("calMonth").value||monthValueNow(),[y,m]=ym.split("-").map(Number),start=`${y}-${String(m).padStart(2,"0")}-01`,end=isoDate(new Date(y,m,0,12)),occ=scheduledOccurrences(start,end),q=await db.from("reg_lessons").select("*").gte("lesson_date",start).lte("lesson_date",end); if(q.error)return showMessage(q.error.message);
   const rows=q.data||[],regularMap=new Map(rows.filter(x=>x.kind==="regular").map(x=>[`${x.group_id}|${x.lesson_date}`,x])),recoveries=rows.filter(x=>x.kind==="recovery"),originalMap=await originalMapForRecoveries(recoveries),items=[];
   for(const o of occ){const row=regularMap.get(`${o.program.group_id}|${o.date}`); items.push({date:o.date,time:o.program.start_time,html:`<div class="lesson ${row?.status==="cancelled"?"cancelled":""}"><b>${esc(groupName(o.program.group_id))}</b><br>${o.program.start_time.slice(0,5)}–${o.program.end_time.slice(0,5)} · ${esc(teacherName(row?.substitute_teacher_id||o.program.teacher_id))}${o.program.assistant_id?` · Assistente: ${esc(teacherName(row?.substitute_assistant_id||o.program.assistant_id))}`:""} ${row?.status==="cancelled"?'<span class="tag cancel">annullata</span>':""} ${row?.substitute_teacher_id?'<span class="tag sub">cambio docente</span>':""}</div>`});}
-  for(const r of recoveries){const expected=expectedTeacherForRecovery(r,originalMap),original=originalMap.get(r.recovers_lesson_id),expectedAssistant=expectedAssistantForRecovery(r,originalMap); items.push({date:r.lesson_date,time:"99:99",html:`<div class="lesson recovery clickable" onclick="openRecoveryManage('${r.id}')" title="Clicca per modificare o eliminare"><b>${esc(groupName(r.group_id))}</b> <span class="tag recovery">RECUPERO</span><br>${original?'della lezione del '+fmtDate(original.lesson_date):""}<br>Docente: ${esc(teacherName(r.substitute_teacher_id||expected))}${expectedAssistant?` · Assistente: ${esc(teacherName(r.substitute_assistant_id||expectedAssistant))}`:""}<br><span class="muted">Clicca per gestire il recupero</span></div>`});}
+  for(const r of recoveries){
+    const expected=expectedTeacherForRecovery(r,originalMap),original=originalMap.get(r.recovers_lesson_id),expectedAssistant=expectedAssistantForRecovery(r,originalMap);
+    const click=isAdmin()?` clickable" onclick="openRecoveryManage('${r.id}')" title="Clicca per modificare o eliminare`:'"';
+    const hint=isAdmin()?'<br><span class="muted">Clicca per gestire il recupero</span>':"";
+    items.push({date:r.lesson_date,time:"99:99",html:`<div class="lesson recovery${click}"><b>${esc(groupName(r.group_id))}</b> <span class="tag recovery">RECUPERO</span><br>${original?'della lezione del '+fmtDate(original.lesson_date):""}<br>Docente: ${esc(teacherName(r.substitute_teacher_id||expected))}${expectedAssistant?` · Assistente: ${esc(teacherName(r.substitute_assistant_id||expectedAssistant))}`:""}${hint}</div>`});
+  }
   items.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time)); let html="",last=""; for(const it of items){if(it.date!==last){html+=`<div class="calendar-day">${parseDate(it.date).toLocaleDateString("it-IT",{weekday:"long",day:"2-digit",month:"long"})}</div>`; last=it.date;} html+=it.html;} $("calendarList").innerHTML=html||'<div class="empty">Nessuna lezione nel mese selezionato.</div>';
 }
 
