@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#f2b705">
 <title>Registro Vicolo Cechov</title>
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js?v=1"></script>
 </head>
@@ -128,7 +128,8 @@
       <label>Anno didattico<select id="reportYear"></select></label>
       <button id="annualReport">Report annuale</button>
     </div>
-    <button id="commitmentReport" class="secondary">Quadro impegni annuale</button>
+    <button id="commitmentReport" class="annual-detail-btn">ASSENZE E SOSTITUZIONI ANNUALI</button>
+    <p class="report-help">Dettaglio di sostituzioni, lezioni annullate e recuperi.</p>
     <pre id="reportOutput"></pre>
     <button id="copyReport" hidden>📋 COPIA REPORT</button>
   </div>
@@ -166,6 +167,6 @@ async function registroLogin(){
   }catch(e){msg.textContent="Errore tecnico: "+e.message;}
 }
 </script>
-<script src="app.js?v=13"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>
